@@ -1,0 +1,10 @@
+{
+  "name": "Refuge — accompagnement sobriété",
+  "short_name": "Refuge",
+  "description": "Ton compagnon pour avancer, à ton rythme.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#FAFBFC",
+  "theme_color": "#2B7FFF",
+  "icons": []
+}

@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 250 251 253;
+  --foreground: 15 19 27;
+}
+
+html,
+body {
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Hide iOS input zoom */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Soft focus rings matching the clinic palette */
+*:focus-visible {
+  outline: 2px solid #2b7fff;
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+/* Subtle gradient for the auth hero */
+.hero-gradient {
+  background:
+    radial-gradient(80% 60% at 20% 0%, #dcefff 0%, transparent 60%),
+    radial-gradient(80% 60% at 100% 80%, #d8f5ea 0%, transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, #f7f8fa 100%);
+}
+
+/* Progress dots */
+.dot-track {
+  @apply inline-flex gap-1.5;
+}
+.dot-track span {
+  @apply block h-1.5 w-6 rounded-full bg-ink-200 transition-all;
+}
+.dot-track span[data-active="true"] {
+  @apply bg-clinic-500;
+}
