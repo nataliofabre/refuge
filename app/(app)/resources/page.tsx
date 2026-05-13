@@ -1,41 +1,110 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Phone, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Phone, ChevronDown, Wind, Sparkles, Trash2 } from "lucide-react";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EMERGENCY_CONTACTS } from "@/lib/constants";
+import { createClient } from "@/lib/supabase/client";
+import { formatDate } from "@/lib/utils";
 
-type Exercise = {
+type Tone = "clinic" | "mint" | "sand" | "coral";
+
+type BreathingPattern = {
   key: string;
   title: string;
   emoji: string;
   desc: string;
-  href?: string;
+  recommended: string;
+  durationMinutes: number;
+  cycle: { label: string; seconds: number }[];
+  tone: Tone;
+  shape: "circle" | "square";
+};
+
+const breathingPatterns: BreathingPattern[] = [
+  {
+    key: "breath-46",
+    title: "Respiration 4-6 (1 min)",
+    emoji: "🫁",
+    desc: "Inspire 4s, expire 6s. Le classique pour faire redescendre rapidement.",
+    recommended: "Calmer une montée de pression en 1 minute",
+    durationMinutes: 1,
+    cycle: [
+      { label: "Inspire", seconds: 4 },
+      { label: "Expire", seconds: 6 },
+    ],
+    tone: "clinic",
+    shape: "circle",
+  },
+  {
+    key: "breath-coherence",
+    title: "Cohérence cardiaque (5 min)",
+    emoji: "💗",
+    desc: "5 secondes inspire, 5 secondes expire. 6 respirations par minute.",
+    recommended: "Réguler le stress de fond, matin ou soir",
+    durationMinutes: 5,
+    cycle: [
+      { label: "Inspire", seconds: 5 },
+      { label: "Expire", seconds: 5 },
+    ],
+    tone: "mint",
+    shape: "circle",
+  },
+  {
+    key: "breath-478",
+    title: "4-7-8 — relaxation (2 min)",
+    emoji: "🌙",
+    desc: "Inspire 4s, retiens 7s, expire 8s. Ralentit fortement le système nerveux.",
+    recommended: "Anxiété forte, ou avant de dormir",
+    durationMinutes: 2,
+    cycle: [
+      { label: "Inspire", seconds: 4 },
+      { label: "Retiens", seconds: 7 },
+      { label: "Expire", seconds: 8 },
+    ],
+    tone: "sand",
+    shape: "circle",
+  },
+  {
+    key: "breath-box",
+    title: "Box breathing 4-4-4-4 (2 min)",
+    emoji: "⬛",
+    desc: "Inspire, retiens, expire, retiens — 4s chaque. Trace un carré.",
+    recommended: "Retrouver de la concentration avant un moment important",
+    durationMinutes: 2,
+    cycle: [
+      { label: "Inspire", seconds: 4 },
+      { label: "Retiens", seconds: 4 },
+      { label: "Expire", seconds: 4 },
+      { label: "Retiens", seconds: 4 },
+    ],
+    tone: "clinic",
+    shape: "square",
+  },
+];
+
+type OtherExercise = {
+  key: string;
+  title: string;
+  emoji: string;
+  desc: string;
   steps?: string[];
   timerSeconds?: number;
   noteField?: boolean;
 };
 
-const exercises: Exercise[] = [
-  {
-    key: "breathing",
-    title: "Respiration 4-6 (1 min)",
-    emoji: "🫁",
-    desc: "Inspire 4 sec, expire 6 sec. Le classique pour faire redescendre la pression.",
-    href: "/craving",
-  },
+const otherExercises: OtherExercise[] = [
   {
     key: "walk",
     title: "Sortie express (10 min)",
     emoji: "🚶",
-    desc: "Marche 10 min, sans téléphone si possible. Aussi simple que ça.",
+    desc: "Marche 10 min, sans téléphone si possible.",
     steps: [
       "Mets une tenue confortable et des chaussures.",
-      "Sors sans ton téléphone (ou en mode silencieux au fond de la poche).",
+      "Sors sans ton téléphone (ou en mode silencieux dans la poche).",
       "Marche à un rythme normal pendant 10 minutes.",
-      "Observe : la rue, les sons, ta respiration. Pas besoin de penser à autre chose.",
+      "Observe : la rue, les sons, ta respiration.",
       "À la fin, réévalue : est-ce que l'envie a bougé ?",
     ],
     timerSeconds: 10 * 60,
@@ -44,13 +113,13 @@ const exercises: Exercise[] = [
     key: "water",
     title: "Eau + fruit (15 min)",
     emoji: "💧",
-    desc: "Grand verre d'eau, un fruit. Attends 15 min — souvent l'envie redescend toute seule.",
+    desc: "Grand verre d'eau, un fruit, 15 min d'attente.",
     steps: [
       "Bois un grand verre d'eau, lentement.",
       "Mange un fruit (ou un truc sucré naturel).",
       "Lance le timer de 15 minutes.",
-      "Pendant l'attente, fais autre chose : musique, série, douche, ménage.",
-      "Quand le timer sonne, réévalue : l'envie est encore là, ou pas ?",
+      "Pendant l'attente, fais autre chose : musique, série, douche.",
+      "Quand le timer sonne, réévalue : l'envie est-elle encore là ?",
     ],
     timerSeconds: 15 * 60,
   },
@@ -58,7 +127,7 @@ const exercises: Exercise[] = [
     key: "deferred",
     title: "Envies différées",
     emoji: "📝",
-    desc: "Écris 3 choses que tu aimerais faire à la place. Ça transforme la pulsion en intention.",
+    desc: "Écris 3 choses que tu aimerais faire à la place. Transforme la pulsion en intention.",
     noteField: true,
   },
 ];
@@ -83,7 +152,7 @@ Le piège, c'est de croire qu'il va durer pour toujours, ou qu'il va te submerge
 
 À l'inverse, si tu "surfes" la vague — tu observes, tu respires, tu laisses passer — ton cerveau apprend que le craving passe, et la fois suivante il sera moins fort.
 
-Ce qui aide vraiment : repérer le craving dès qu'il monte (pas attendre qu'il soit à 9/10), bouger physiquement (marche, douche froide), boire de l'eau, et noter ce qui l'a déclenché. Tu construis tes données — et avec le temps, tu vois tes patterns.`,
+Ce qui aide vraiment : repérer le craving dès qu'il monte (pas attendre qu'il soit à 9/10), bouger physiquement, boire de l'eau, et noter ce qui l'a déclenché. Tu construis tes données — et avec le temps, tu vois tes patterns.`,
   },
   {
     key: "harm-reduction",
@@ -116,10 +185,118 @@ Allié·e clé : si possible, identifie une personne (ami, partenaire, frère/s�
   },
 ];
 
+type LogEntry = {
+  id: string;
+  exercise_key: string;
+  exercise_title: string | null;
+  completed: boolean;
+  payload: any;
+  created_at: string;
+};
+
+const toneClasses: Record<Tone, { bg: string; border: string; text: string; ring: string }> = {
+  clinic: {
+    bg: "bg-clinic-100",
+    border: "border-clinic-300",
+    text: "text-clinic-700",
+    ring: "ring-clinic-300",
+  },
+  mint: {
+    bg: "bg-mint-50",
+    border: "border-mint-300",
+    text: "text-mint-700",
+    ring: "ring-mint-300",
+  },
+  sand: {
+    bg: "bg-sand-50",
+    border: "border-sand-200",
+    text: "text-sand-500",
+    ring: "ring-sand-200",
+  },
+  coral: {
+    bg: "bg-coral-50",
+    border: "border-coral-300",
+    text: "text-coral-700",
+    ring: "ring-coral-300",
+  },
+};
+
 export default function ResourcesPage() {
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [history, setHistory] = useState<LogEntry[]>([]);
+  const [cravingWeek, setCravingWeek] = useState<number>(0);
+  const [exerciseWeek, setExerciseWeek] = useState<number>(0);
+
+  const supabase = createClient();
+
+  async function loadHistoryAndStats() {
+    try {
+      const { data } = await supabase
+        .from("user_exercise_logs")
+        .select("id, exercise_key, exercise_title, completed, payload, created_at")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      setHistory((data as LogEntry[]) || []);
+
+      const sinceISO = new Date(Date.now() - 7 * 86_400_000).toISOString();
+
+      const { count: exCount } = await supabase
+        .from("user_exercise_logs")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", sinceISO);
+      setExerciseWeek(exCount || 0);
+
+      const { count: crCount } = await supabase
+        .from("craving_events")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", sinceISO);
+      setCravingWeek(crCount || 0);
+    } catch (e) {
+      // table peut ne pas encore exister si le SQL n'a pas été exécuté
+      console.warn("Resources: history not available yet", e);
+    }
+  }
+
+  useEffect(() => {
+    loadHistoryAndStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function logExercise(
+    exerciseKey: string,
+    exerciseTitle: string,
+    payload?: any
+  ) {
+    try {
+      const { data: userRes } = await supabase.auth.getUser();
+      const user = userRes.user;
+      if (!user) return;
+      await supabase.from("user_exercise_logs").insert({
+        user_id: user.id,
+        exercise_key: exerciseKey,
+        exercise_title: exerciseTitle,
+        completed: true,
+        completed_at: new Date().toISOString(),
+        payload: payload ?? null,
+      });
+      await loadHistoryAndStats();
+    } catch (e) {
+      console.warn("Could not save exercise log", e);
+    }
+  }
+
+  async function deleteEntry(id: string) {
+    try {
+      await supabase.from("user_exercise_logs").delete().eq("id", id);
+      await loadHistoryAndStats();
+    } catch (e) {
+      console.warn("Could not delete entry", e);
+    }
+  }
 
   const toggle = (k: string) => setOpenKey(openKey === k ? null : k);
+
+  const deferredHistory = history.filter((h) => h.exercise_key === "deferred");
 
   return (
     <div className="flex flex-col gap-5">
@@ -133,15 +310,33 @@ export default function ResourcesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>🎯 Exercices rapides</CardTitle>
+          <CardTitle>🌬️ Respirations guidées</CardTitle>
         </CardHeader>
         <CardBody className="grid gap-2">
-          {exercises.map((e) => (
+          {breathingPatterns.map((p) => (
+            <BreathingCard
+              key={p.key}
+              pattern={p}
+              open={openKey === p.key}
+              onToggle={() => toggle(p.key)}
+              onComplete={() => logExercise(p.key, p.title)}
+            />
+          ))}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>🎯 Autres exercices</CardTitle>
+        </CardHeader>
+        <CardBody className="grid gap-2">
+          {otherExercises.map((e) => (
             <ExerciseCard
               key={e.key}
               ex={e}
               open={openKey === e.key}
               onToggle={() => toggle(e.key)}
+              onComplete={(payload) => logExercise(e.key, e.title, payload)}
             />
           ))}
         </CardBody>
@@ -160,6 +355,75 @@ export default function ResourcesPage() {
               onToggle={() => toggle(r.key)}
             />
           ))}
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>📒 Mon journal — 7 derniers jours</CardTitle>
+        </CardHeader>
+        <CardBody className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <StatTile
+              label="Cravings traversés"
+              value={cravingWeek}
+              tone="coral"
+            />
+            <StatTile
+              label="Exercices faits"
+              value={exerciseWeek}
+              tone="mint"
+            />
+          </div>
+
+          <div>
+            <div className="mb-2 text-sm font-medium text-ink-700">
+              Mes envies différées récentes
+            </div>
+            {deferredHistory.length === 0 ? (
+              <p className="text-sm text-ink-500">
+                Rien pour l'instant. Quand tu remplis l'exercice "Envies
+                différées" et que tu cliques sur Enregistrer, tu retrouves tes
+                idées ici.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {deferredHistory.map((h) => {
+                  const ideas: string[] = Array.isArray(h.payload?.ideas)
+                    ? h.payload.ideas.filter((x: string) => x && x.trim())
+                    : [];
+                  return (
+                    <li
+                      key={h.id}
+                      className="rounded-2xl border border-ink-100 bg-white p-3"
+                    >
+                      <div className="mb-1 flex items-start justify-between text-xs text-ink-400">
+                        <span>{formatDate(h.created_at)}</span>
+                        <button
+                          onClick={() => deleteEntry(h.id)}
+                          className="text-ink-400 hover:text-coral-600"
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      {ideas.length > 0 ? (
+                        <ul className="list-disc pl-5 text-sm text-ink-700">
+                          {ideas.map((i, idx) => (
+                            <li key={idx}>{i}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-sm text-ink-500">
+                          (Aucune idée notée)
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </CardBody>
       </Card>
 
@@ -184,31 +448,319 @@ export default function ResourcesPage() {
   );
 }
 
+function StatTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: Tone;
+}) {
+  const c = toneClasses[tone];
+  return (
+    <div className={`rounded-2xl border ${c.border} ${c.bg} p-4`}>
+      <div className={`text-3xl font-semibold ${c.text}`}>{value}</div>
+      <div className="text-xs text-ink-700">{label}</div>
+    </div>
+  );
+}
+
+function BreathingCard({
+  pattern,
+  open,
+  onToggle,
+  onComplete,
+}: {
+  pattern: BreathingPattern;
+  open: boolean;
+  onToggle: () => void;
+  onComplete: () => void;
+}) {
+  const c = toneClasses[pattern.tone];
+
+  return (
+    <div
+      className={`rounded-2xl border bg-white transition ${
+        open ? c.border : "border-ink-200"
+      }`}
+    >
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center gap-3 rounded-2xl p-3 text-left hover:bg-ink-50"
+      >
+        <span className="text-2xl">{pattern.emoji}</span>
+        <div className="flex-1">
+          <div className="font-medium">{pattern.title}</div>
+          <div className="text-sm text-ink-600">{pattern.desc}</div>
+          <div className={`mt-1 text-xs ${c.text}`}>
+            ↳ {pattern.recommended}
+          </div>
+        </div>
+        <ChevronDown
+          size={18}
+          className={`text-ink-400 transition ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-ink-100 p-4">
+          <BreathingExercise pattern={pattern} onComplete={onComplete} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BreathingExercise({
+  pattern,
+  onComplete,
+}: {
+  pattern: BreathingPattern;
+  onComplete: () => void;
+}) {
+  const totalSeconds = pattern.durationMinutes * 60;
+  const cycleSeconds = pattern.cycle.reduce((s, p) => s + p.seconds, 0);
+
+  const [running, setRunning] = useState(false);
+  const [phaseIdx, setPhaseIdx] = useState(0);
+  const [phaseT, setPhaseT] = useState(0); // 0..1 in current phase
+  const [secondsLeft, setSecondsLeft] = useState(totalSeconds);
+  const [done, setDone] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const completedRef = useRef(false);
+
+  useEffect(() => {
+    if (!running) return;
+    const start = Date.now();
+    setSecondsLeft(totalSeconds);
+    setDone(false);
+    completedRef.current = false;
+
+    function tick() {
+      const elapsed = (Date.now() - start) / 1000;
+      const left = Math.max(0, totalSeconds - elapsed);
+      setSecondsLeft(Math.ceil(left));
+
+      const inCycle = elapsed % cycleSeconds;
+      let acc = 0;
+      let pIdx = 0;
+      for (let i = 0; i < pattern.cycle.length; i++) {
+        if (inCycle < acc + pattern.cycle[i].seconds) {
+          pIdx = i;
+          break;
+        }
+        acc += pattern.cycle[i].seconds;
+      }
+      const pT = (inCycle - acc) / pattern.cycle[pIdx].seconds;
+      setPhaseIdx(pIdx);
+      setPhaseT(pT);
+
+      if (elapsed < totalSeconds) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setRunning(false);
+        setDone(true);
+        if (!completedRef.current) {
+          completedRef.current = true;
+          onComplete();
+        }
+      }
+    }
+    tick();
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+
+  const phaseLabel = pattern.cycle[phaseIdx].label;
+  const c = toneClasses[pattern.tone];
+
+  if (!running && !done) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-2 text-center">
+        <p className="text-sm text-ink-600">
+          {pattern.durationMinutes} min · cycle{" "}
+          {pattern.cycle.map((p) => `${p.seconds}s ${p.label.toLowerCase()}`).join(" → ")}
+        </p>
+        <Button onClick={() => setRunning(true)}>Démarrer</Button>
+      </div>
+    );
+  }
+
+  if (done) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-4 text-center">
+        <Sparkles size={28} className={c.text} />
+        <p className="text-sm font-medium text-mint-700">
+          Bravo 🎉 — exercice enregistré dans ton journal.
+        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            setDone(false);
+            setSecondsLeft(totalSeconds);
+            setRunning(true);
+          }}
+        >
+          Recommencer
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-4 py-4">
+      {pattern.shape === "circle" ? (
+        <CircleVisual
+          phaseLabel={phaseLabel}
+          phaseIdx={phaseIdx}
+          phaseT={phaseT}
+          tone={pattern.tone}
+        />
+      ) : (
+        <SquareVisual
+          phaseLabel={phaseLabel}
+          phaseIdx={phaseIdx}
+          phaseT={phaseT}
+          tone={pattern.tone}
+        />
+      )}
+      <div className="flex items-center justify-center gap-1 text-sm text-ink-600">
+        <Wind size={14} /> {secondsLeft}s restantes
+      </div>
+      <button
+        onClick={() => {
+          if (rafRef.current) cancelAnimationFrame(rafRef.current);
+          setRunning(false);
+          setSecondsLeft(totalSeconds);
+        }}
+        className="text-sm text-ink-500 underline"
+      >
+        Arrêter
+      </button>
+    </div>
+  );
+}
+
+function CircleVisual({
+  phaseLabel,
+  phaseIdx,
+  phaseT,
+  tone,
+}: {
+  phaseLabel: string;
+  phaseIdx: number;
+  phaseT: number;
+  tone: Tone;
+}) {
+  const c = toneClasses[tone];
+  // Smooth scale: grows during Inspire, holds during Retiens, shrinks during Expire
+  let scale = 0.85;
+  const lower = phaseLabel.toLowerCase();
+  if (lower.startsWith("inspire")) {
+    scale = 0.85 + 0.45 * phaseT;
+  } else if (lower.startsWith("expire")) {
+    scale = 1.3 - 0.45 * phaseT;
+  } else {
+    // hold (Retiens) — keep previous max if mid-cycle
+    scale = phaseIdx === 1 && lower.startsWith("retiens") ? 1.3 : 0.85;
+  }
+
+  return (
+    <div className="relative flex h-56 w-56 items-center justify-center">
+      <div
+        className={`absolute inset-0 rounded-full ${c.bg} transition-transform duration-1000 ease-in-out`}
+        style={{ transform: `scale(${scale})` }}
+      />
+      <div
+        className={`absolute inset-3 rounded-full ring-2 ${c.ring} transition-transform duration-1000 ease-in-out`}
+        style={{ transform: `scale(${scale * 0.85})`, opacity: 0.5 }}
+      />
+      <div className="relative z-10 text-center">
+        <div className={`text-2xl font-semibold ${c.text}`}>{phaseLabel}</div>
+      </div>
+    </div>
+  );
+}
+
+function SquareVisual({
+  phaseLabel,
+  phaseIdx,
+  phaseT,
+  tone,
+}: {
+  phaseLabel: string;
+  phaseIdx: number;
+  phaseT: number;
+  tone: Tone;
+}) {
+  const c = toneClasses[tone];
+  const SIZE = 224; // px
+  const INSET = 12;
+  const min = INSET;
+  const max = SIZE - INSET;
+
+  // Dot tracing along 4 sides. Box cycle: Inspire → Retiens → Expire → Retiens
+  let dotX = min;
+  let dotY = max;
+  if (phaseIdx === 0) {
+    // Inspire: bottom-left → top-left (going up the left side)
+    dotX = min;
+    dotY = max - (max - min) * phaseT;
+  } else if (phaseIdx === 1) {
+    // Hold full: top-left → top-right
+    dotX = min + (max - min) * phaseT;
+    dotY = min;
+  } else if (phaseIdx === 2) {
+    // Expire: top-right → bottom-right
+    dotX = max;
+    dotY = min + (max - min) * phaseT;
+  } else {
+    // Hold empty: bottom-right → bottom-left
+    dotX = max - (max - min) * phaseT;
+    dotY = max;
+  }
+
+  // Fill level for visual support (rises during inhale, full during hold, falls during exhale, empty during hold)
+  let fill = 0;
+  if (phaseIdx === 0) fill = phaseT;
+  else if (phaseIdx === 1) fill = 1;
+  else if (phaseIdx === 2) fill = 1 - phaseT;
+  else fill = 0;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-3xl border-2 border-ink-100 bg-white"
+      style={{ width: SIZE, height: SIZE }}
+    >
+      <div
+        className={`absolute inset-x-0 bottom-0 ${c.bg} transition-all duration-1000 ease-in-out`}
+        style={{ height: `${fill * 100}%` }}
+      />
+      <div
+        className={`absolute h-3 w-3 rounded-full ${c.bg} border-2 ${c.border} shadow-soft transition-all duration-1000 ease-linear`}
+        style={{ left: dotX - 6, top: dotY - 6 }}
+      />
+      <div className="relative z-10 flex h-full w-full items-center justify-center">
+        <div className={`text-2xl font-semibold ${c.text}`}>{phaseLabel}</div>
+      </div>
+    </div>
+  );
+}
+
 function ExerciseCard({
   ex,
   open,
   onToggle,
+  onComplete,
 }: {
-  ex: Exercise;
+  ex: OtherExercise;
   open: boolean;
   onToggle: () => void;
+  onComplete: (payload?: any) => void;
 }) {
-  if (ex.href) {
-    return (
-      <Link
-        href={ex.href}
-        className="flex items-center gap-3 rounded-2xl border border-ink-200 bg-white p-3 hover:bg-ink-50"
-      >
-        <span className="text-2xl">{ex.emoji}</span>
-        <div className="flex-1">
-          <div className="font-medium">{ex.title}</div>
-          <div className="text-sm text-ink-600">{ex.desc}</div>
-        </div>
-        <span className="text-ink-400">›</span>
-      </Link>
-    );
-  }
-
   return (
     <div
       className={`rounded-2xl border bg-white transition ${
@@ -229,7 +781,6 @@ function ExerciseCard({
           className={`text-ink-400 transition ${open ? "rotate-180" : ""}`}
         />
       </button>
-
       {open && (
         <div className="border-t border-ink-100 p-4">
           {ex.steps && (
@@ -239,35 +790,48 @@ function ExerciseCard({
               ))}
             </ol>
           )}
-
-          {ex.timerSeconds && <Timer totalSeconds={ex.timerSeconds} />}
-
-          {ex.noteField && <DeferredNotes />}
+          {ex.timerSeconds && (
+            <Timer
+              totalSeconds={ex.timerSeconds}
+              onDone={() => onComplete()}
+            />
+          )}
+          {ex.noteField && <DeferredNotes onSave={(ideas) => onComplete({ ideas })} />}
         </div>
       )}
     </div>
   );
 }
 
-function Timer({ totalSeconds }: { totalSeconds: number }) {
+function Timer({
+  totalSeconds,
+  onDone,
+}: {
+  totalSeconds: number;
+  onDone: () => void;
+}) {
   const [remaining, setRemaining] = useState(totalSeconds);
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState(false);
+  const completedRef = useRef(false);
 
   useEffect(() => {
     if (!running) return;
     if (remaining <= 0) {
       setRunning(false);
       setDone(true);
+      if (!completedRef.current) {
+        completedRef.current = true;
+        onDone();
+      }
       return;
     }
     const id = setTimeout(() => setRemaining((r) => r - 1), 1000);
     return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, remaining]);
 
-  const mm = Math.floor(remaining / 60)
-    .toString()
-    .padStart(2, "0");
+  const mm = Math.floor(remaining / 60).toString().padStart(2, "0");
   const ss = (remaining % 60).toString().padStart(2, "0");
 
   return (
@@ -277,7 +841,7 @@ function Timer({ totalSeconds }: { totalSeconds: number }) {
       </div>
       {done ? (
         <span className="text-sm font-medium text-mint-700">
-          Bravo 🎉 — l'envie a-t-elle bougé ?
+          Bravo 🎉 — enregistré dans ton journal.
         </span>
       ) : (
         <Button
@@ -287,15 +851,12 @@ function Timer({ totalSeconds }: { totalSeconds: number }) {
             if (remaining === 0) {
               setRemaining(totalSeconds);
               setDone(false);
+              completedRef.current = false;
             }
             setRunning((r) => !r);
           }}
         >
-          {running
-            ? "Pause"
-            : remaining < totalSeconds
-            ? "Reprendre"
-            : "Démarrer"}
+          {running ? "Pause" : remaining < totalSeconds ? "Reprendre" : "Démarrer"}
         </Button>
       )}
       {(running || (remaining < totalSeconds && !done)) && (
@@ -304,6 +865,7 @@ function Timer({ totalSeconds }: { totalSeconds: number }) {
             setRunning(false);
             setRemaining(totalSeconds);
             setDone(false);
+            completedRef.current = false;
           }}
           className="text-sm text-ink-500 underline"
         >
@@ -314,8 +876,12 @@ function Timer({ totalSeconds }: { totalSeconds: number }) {
   );
 }
 
-function DeferredNotes() {
+function DeferredNotes({ onSave }: { onSave: (ideas: string[]) => void }) {
   const [notes, setNotes] = useState<string[]>(["", "", ""]);
+  const [saved, setSaved] = useState(false);
+
+  const filled = notes.some((n) => n.trim().length > 0);
+
   return (
     <div className="mt-2 space-y-2">
       <p className="text-sm text-ink-600">
@@ -332,9 +898,33 @@ function DeferredNotes() {
           className="w-full rounded-2xl border border-ink-200 bg-white px-3 py-2 text-sm"
         />
       ))}
-      <p className="pt-1 text-xs text-ink-400">
-        Note rapide — pas sauvegardée. Si tu veux garder, recopie ailleurs.
-      </p>
+      {saved ? (
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-sm text-mint-700">
+            ✓ Enregistré dans ton journal.
+          </span>
+          <button
+            onClick={() => {
+              setNotes(["", "", ""]);
+              setSaved(false);
+            }}
+            className="text-sm text-clinic-600 underline"
+          >
+            Nouvelle entrée
+          </button>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          disabled={!filled}
+          onClick={() => {
+            onSave(notes);
+            setSaved(true);
+          }}
+        >
+          Enregistrer dans mon journal
+        </Button>
+      )}
     </div>
   );
 }
@@ -368,7 +958,6 @@ function ReadCard({
           className={`text-ink-400 transition ${open ? "rotate-180" : ""}`}
         />
       </button>
-
       {open && (
         <div className="whitespace-pre-line border-t border-ink-100 p-4 text-sm leading-relaxed text-ink-700">
           {read.body}
