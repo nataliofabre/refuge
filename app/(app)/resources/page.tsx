@@ -8,6 +8,13 @@ import { EMERGENCY_CONTACTS } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
 
+function formatMMSS(totalSeconds: number) {
+  const safe = Math.max(0, Math.ceil(totalSeconds));
+  const mm = Math.floor(safe / 60).toString().padStart(2, "0");
+  const ss = (safe % 60).toString().padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
 type Tone = "clinic" | "mint" | "sand" | "coral";
 
 type BreathingPattern = {
@@ -627,8 +634,12 @@ function BreathingExercise({
           tone={pattern.tone}
         />
       )}
-      <div className="flex items-center justify-center gap-1 text-sm text-ink-600">
-        <Wind size={14} /> {secondsLeft}s restantes
+      <div className="flex items-center justify-center gap-2 text-sm text-ink-600">
+        <Wind size={14} />
+        <span className="text-base font-semibold tabular-nums text-ink-800">
+          {formatMMSS(secondsLeft)}
+        </span>
+        <span className="text-xs text-ink-400">restantes</span>
       </div>
       <button
         onClick={() => {
@@ -656,26 +667,31 @@ function CircleVisual({
   tone: Tone;
 }) {
   const c = toneClasses[tone];
-  // Smooth scale: grows during Inspire, holds during Retiens, shrinks during Expire
+  // Smooth ease (sinusoid) for breathing feel
+  const ease = (1 - Math.cos(Math.PI * phaseT)) / 2;
+
   let scale = 0.85;
   const lower = phaseLabel.toLowerCase();
   if (lower.startsWith("inspire")) {
-    scale = 0.85 + 0.45 * phaseT;
+    scale = 0.85 + 0.45 * ease;
   } else if (lower.startsWith("expire")) {
-    scale = 1.3 - 0.45 * phaseT;
+    scale = 1.3 - 0.45 * ease;
   } else {
-    // hold (Retiens) — keep previous max if mid-cycle
-    scale = phaseIdx === 1 && lower.startsWith("retiens") ? 1.3 : 0.85;
+    // Retiens (hold). If the hold comes right after Inspire, the lung is "full" → big.
+    // If the hold comes right after Expire (box breathing), it's "empty" → small.
+    // Heuristic: phaseIdx 1 = first hold (after Inspire) → big.
+    //            phaseIdx 3 = second hold (after Expire) → small.
+    scale = phaseIdx === 1 ? 1.3 : 0.85;
   }
 
   return (
     <div className="relative flex h-56 w-56 items-center justify-center">
       <div
-        className={`absolute inset-0 rounded-full ${c.bg} transition-transform duration-1000 ease-in-out`}
+        className={`absolute inset-0 rounded-full ${c.bg}`}
         style={{ transform: `scale(${scale})` }}
       />
       <div
-        className={`absolute inset-3 rounded-full ring-2 ${c.ring} transition-transform duration-1000 ease-in-out`}
+        className={`absolute inset-3 rounded-full ring-2 ${c.ring}`}
         style={{ transform: `scale(${scale * 0.85})`, opacity: 0.5 }}
       />
       <div className="relative z-10 text-center">
@@ -736,12 +752,12 @@ function SquareVisual({
       style={{ width: SIZE, height: SIZE }}
     >
       <div
-        className={`absolute inset-x-0 bottom-0 ${c.bg} transition-all duration-1000 ease-in-out`}
+        className={`absolute inset-x-0 bottom-0 ${c.bg}`}
         style={{ height: `${fill * 100}%` }}
       />
       <div
-        className={`absolute h-3 w-3 rounded-full ${c.bg} border-2 ${c.border} shadow-soft transition-all duration-1000 ease-linear`}
-        style={{ left: dotX - 6, top: dotY - 6 }}
+        className={`absolute h-4 w-4 rounded-full ${c.bg} border-2 ${c.border} shadow-soft`}
+        style={{ left: dotX - 8, top: dotY - 8 }}
       />
       <div className="relative z-10 flex h-full w-full items-center justify-center">
         <div className={`text-2xl font-semibold ${c.text}`}>{phaseLabel}</div>
